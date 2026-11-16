@@ -1,3 +1,0 @@
-# Extend the existing real sessions.delete regression with retired diagnostic
-# aliases and unrelated-session progress preservation; no additional fixture.
-17

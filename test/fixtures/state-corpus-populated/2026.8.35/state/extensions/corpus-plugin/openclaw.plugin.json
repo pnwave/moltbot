@@ -1,1 +1,0 @@
-{ "id": "corpus-plugin", "name": "Corpus Plugin", "version": "1.2.3", "configSchema": { "type": "object", "additionalProperties": false, "properties": {} } }

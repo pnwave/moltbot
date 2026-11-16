@@ -1,2 +1,0 @@
-37
-# Owner-sealed history work-count regression after freezer memo rotation, caller-owned shallow-freeze fallback, and writable-view isolation.

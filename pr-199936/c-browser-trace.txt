@@ -1,0 +1,19 @@
+nohup: 忽略输入
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - JSON import "./control-ui-i18n-config.json" without import attributes (../scripts/lib/control-ui-i18n-sync-plan.ts:2:41). Add `with { type: 'json' }`
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v5.0.5 <openclaw-checkout>/ui
+
+stdout | src/pages/chat/components/chat-session-workspace-copy.browser.test.tsx > Files panel copy button (real Chromium) > copies the absolute workspace path for a workspace-origin file
+[copy-proof] workspace-origin notes/a.txt → clipboard = /tmp/openclaw-e2e/workspace/notes/a.txt
+stdout | src/pages/chat/components/chat-session-workspace-copy.browser.test.tsx > Files panel copy button (real Chromium) > copies the raw relative path for a session-origin file
+[copy-proof] session-origin sub/b.png → clipboard = sub/b.png
+ ✓ |chromium| src/pages/chat/components/chat-session-workspace-copy.browser.test.tsx > Files panel copy button (real Chromium) > copies the absolute workspace path for a workspace-origin file 429ms
+ ✓ |chromium| src/pages/chat/components/chat-session-workspace-copy.browser.test.tsx > Files panel copy button (real Chromium) > copies the raw relative path for a session-origin file 120ms
+
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+   Start at  17:07:38
+   Duration  3.04s (tests 36%, import 33%, worker 17%, setup 14%)
+

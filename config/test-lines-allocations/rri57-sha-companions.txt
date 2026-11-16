@@ -1,2 +1,0 @@
-# RRI57: real companion-scanner CLI regression for bounded SHA-only followups and nonmatching tokens.
-33
