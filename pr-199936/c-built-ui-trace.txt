@@ -1,0 +1,125 @@
+PR #199936 - "Copy path" in the built Control UI: evidence trace (fallback path)
+================================================================================
+Run 2026-11-17 UTC on local proof host 152.193.1.110. The production server
+152.193.1.65 was NOT touched at any point.
+
+Environment
+-----------
+* Gateway: built dist/index.js, build id
+  2026.11.3-2026-11-16T13-17-02.073Z-6e74b355e7b48aef2767488568de44fc7889ac0949ac0d83b3f850a5483753a0
+  Launch: HOME=/tmp/oc-proof/home OPENCLAW_STATE_DIR=/tmp/oc-proof/home/.openclaw
+          node dist/index.js gateway --port 18792 (no auth, serves dist/control-ui)
+* UI: headless Chrome at 1440x900 via Playwright (ui/node_modules/playwright).
+* Session: agent:main:main (70339a65-8d8e-48b2-b50c-f69cd70f9662).
+* Fixture: workspace/big-png.png, 1,703,501 bytes under /tmp/oc-proof/home/.openclaw/workspace.
+
+What was attempted
+------------------
+A live click-proof of the row-level "Copy path" button against the BUILT UI -
+C's sole non-test call site (CopyButton ~chat-session-workspace-row.tsx:320,
+whose text C changes to workspaceFileCopyPath(root, origin, path)).
+
+Finding 1 - the row copy button is structurally NOT rendered in the built
+desktop Control UI (not a script bug; no script fix can surface it)
+--------------------------------------------------------------------
+Live DOM facts (this run; pw-row-dom.mjs + proof-c-detail-copy.mjs):
+* Files panel opens normally; big-png.png row present
+  (button.workspace-desktop__row[aria-label="big-png.png"], count 1).
+* The row item contains only an icon span (data-family="image") plus
+  identity spans - no actions span, no copy button
+  (.workspace-desktop__actions count in document: 0; .chat-copy-btn in
+  item: 0).
+* Hovering the row adds nothing (outerHTML before == after hover;
+  SAME_ON_HOVER: true).
+
+Why the button cannot appear: the row actions span is gated behind
+<Show when={props.workspace.presentation === undefined && !props.directory}>
+(chat-session-workspace-row.tsx ~284; conditional class
+workspace-desktop__item--actions at ~188; the CopyButton at ~320 is
+further nested in <Show when={!props.file.artifactId}>).
+In the built desktop UI the presentation value is always "desktop":
+* chat-pane-side-panels.ts:80 - sessionPresentation getter:
+  parseCatalogSessionKey(sessionKey) truthy -> undefined, else
+  mergedChrome ? "mobile" : "desktop". The main chat session key is not a
+  catalog key -> "desktop".
+* Flow: chat-pane-layout-render.ts (:311/:413/:478) -> chat-pane-rails.ts
+  createSessionWorkspaceProps(state, { presentation }) -> workspace object
+  (chat-session-workspace.ts:384) -> chat-pane-embedded-view.tsx ~254-270
+  <Files presentation={...}> (custom element openclaw-chat-files-panel,
+  registered at :440) -> chat-files-panel.tsx:287-288 <SessionWorkspaceRail>
+  -> rail-solid.tsx <Switch> "desktop" -> DesktopWorkspaceContents
+  (chat-session-workspace-desktop.tsx; defaultCatalog() =
+  presentation === undefined = false at :109, i.e. browser tree) ->
+  WorkspaceRows -> RailRow.
+* Live-DOM corroboration: data-presentation="desktop" on the fallback rail
+  bar / detail chrome (chat-files-panel.tsx:379/407,
+  chat-sidebar-file-chrome.tsx:244).
+The gate predates C: per the PR files API, C's diff is exactly 3 files -
+chat-session-workspace-file-content.ts (+14),
+chat-session-workspace-row.tsx (+6 -1, CopyButton call site only),
+chat-session-workspace-file-content.test.ts (+156). No gate was added or
+removed by C.
+
+Finding 2 - C's code ships in the served bundles
+------------------------------------------------
+* Minified .js bytes do not contain the identifier workspaceFileCopyPath
+  (mangled); it IS present in the shipped source maps:
+  - chat-files-panel-BdgwoQcT.js.map: sourcesContent[0] (original
+    chat-session-workspace-row.tsx) contains the import + call site.
+  - control-ui-boot-chat-BrF826vW.js.map: sources[50] (original
+    chat-session-workspace-file-content.ts) contains the full
+    implementation:
+      export function workspaceFileCopyPath(root, origin, filePath) {
+        return origin === "workspace"
+          ? workspaceBrowserFilePath(root, filePath) : filePath;
+      }
+* Served bytes are byte-identical to the built dist (SHA-256, measured by
+  HTTP fetch against the running gateway):
+  control-ui-boot-chat-BrF826vW.js =
+    464175354a58428edfe182e943522fef4916f75433936221248c9d10d1673bb6
+  chat-files-panel-BdgwoQcT.js =
+    1bc68a18346d250efc9c7e348152e5a8e170e95dee51fb08a87bde34d4493389
+
+Finding 3 - component-level live clipboard proof of C's call site (published)
+-----------------------------------------------------------------------------
+* Vitest + Playwright run (chat-session-workspace-copy.browser.test.tsx)
+  mounts the real RailRow with presentation === undefined - the surface
+  the gate renders (mobile / non-desktop presentations) - and asserts the
+  clipboard:
+  - workspace-origin file notes/a.txt -> /tmp/openclaw-e2e/workspace/notes/a.txt
+  - session-origin file sub/b.png     -> sub/b.png (relative, as designed)
+* Full trace: pr-199936/c-browser-trace.txt
+* Screenshots: pr-199936/shots/workspace-origin-copied.png,
+  pr-199936/shots/session-origin-copied.png
+
+Supplement - pre-existing detail-panel path copy in the built UI also yields
+an absolute path (NOT C's call site; included only as corroboration)
+---------------------------------------------------------------------------
+* Clicking the big-png.png row opens the desktop detail view (path bar
+  "root > big-png.png" rendered in zh-CN).
+* The "image actions" kebab menu in the path bar offers:
+  ["copy image", "copy path", "copy relative path", "attach to session"]
+  (zh-CN: 复制图片 / 复制路径 / 复制相对路径 / 附加到会话).
+* Clicking "copy path" (chat.detailPanel.copyPath -> onCopy("path") in
+  chat-sidebar-file-chrome.tsx:233 -> chat-file-copy.ts:41
+  `action === "path" ? (file.absolutePath ?? file.path)`; runtime sets
+  absolutePath = workspaceBrowserFilePath(root, path) at
+  chat-session-workspace-content.runtime.ts:147/156/281) copied to the
+  clipboard (live assert via navigator.clipboard.readText, permissions
+  granted):
+  /tmp/oc-proof/home/.openclaw/workspace/big-png.png   (absolute: OK)
+* Screenshots: shots/c-detail-menu.png, shots/c-detail-copied.png
+  (published alongside this trace).
+
+Conclusion
+----------
+In the shipped desktop Control UI the row-level copy button is gated out by
+presentation === "desktop" (pre-existing behavior; C neither adds nor
+removes that gate), so a live click-proof of C's call site in the built UI
+is infeasible. This trace documents: (1) the gate chain, with live DOM
+evidence (Finding 1); (2) that C's diff is byte-for-byte contained in the
+served bundles (Finding 2); (3) a live component-level clipboard proof of
+the call site (Finding 3, published); and (4) a live built-UI demonstration
+that the pre-existing detail-panel surface copies absolute paths
+(Supplement).
+
