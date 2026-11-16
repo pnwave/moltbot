@@ -1,0 +1,68 @@
+# PR #199935 — shipped-entry-point proof (Gateway, no device identity)
+
+Purpose: prove that the image inline-preview cap fix (256 KiB -> 5 MiB, incl. the
+P2 remote-bypass fix in toSessionFileEntry) works through the SHIPPED gateway
+entry point, not just unit tests.
+
+Run: 2026-11-17T01:06 (+08:00), local dev host (no production systems involved).
+
+Setup
+- Entry point: `node dist/index.js gateway --port 18791`
+  (dist/index.js is the shipped CLI/gateway entry of the built distribution).
+  The tree is a release tarball (non-git), so verifyBuiltGatewayHead stamps
+  head=null; this is a documented pre-stamp launch.
+- Isolated env: HOME=/tmp/oc-proof/home, OPENCLAW_STATE_DIR=$HOME/.openclaw.
+- Config ($HOME/.openclaw/openclaw.json, written before launch):
+  {"gateway":{"mode":"local","auth":{"mode":"none"},"bind":"loopback"}}
+  (gateway.mode is required by the startup validation gate; auth.mode=none +
+  loopback bind + role=operator + no device identity = no-device connect.)
+- Session workspace root: the gateway materialized the main agent's workspace
+  at $STATE_DIR/workspace (legacy data-owner default) on first use.
+  Test fixtures were placed there after launch (data files only; config and
+  state DB were never mutated while the gateway ran):
+    big-png.png    1,703,501 B  (> 256 KiB cap on main, <= 5 MiB cap)
+    too-big-png.png 5,242,881 B  (> 5 MiB cap)
+- Fixture generator: same buildPng() as
+  src/gateway/server-methods/workspace-files.preview-cap.test.ts.
+- Client: packages/gateway-client/dist/index.mjs (built), mode=backend,
+  role=operator, scopes=[operator.admin], deviceIdentity=null,
+  url=ws://127.0.0.1:18791.
+- Note: requestTimeoutMs=180000 (default 30000) because a concurrent local
+  docs/DTS build caused event-loop stalls up to ~7.5s during this window;
+  server-side request processing was unaffected.
+
+Expected result on unpatched main: big-png.png -> previewKind "unsupported",
+no content (256 KiB cap). After the fix: previewKind "image", full base64
+content. too-big-png.png stays "unsupported" with no content (> 5 MiB cap,
+local sniff-verified path; remote "unsupported" workspaces keep the generic
+256 KiB cap per the main/#159895 contract — see PR body).
+
+Trace (verbatim, one line per step; no secrets in trace)
+SETUP skipped (--no-setup)
+SETUP verify big-png.png bytes=1703501
+SETUP verify too-big-png.png bytes=5242881
+CONNECT url=ws://127.0.0.1:18791 clientName=gateway-client mode=backend role=operator scopes=[operator.admin] device=null token=<none>
+HELLO_OK protocol=4 session=null auth={"method":"none","role":"operator","scopes":["operator.admin"],"roleAllowsAdmin":true}
+SESSIONS_CREATE key=agent:main:main sessionId=70339a65-8d8e-48b2-b50c-f69cd70f9662 runStarted=false
+SESSIONS_CREATE entry.workspace=null
+FILES_GET big-png.png sessionKey=agent:main:main root=/tmp/oc-proof/home/.openclaw/workspace
+FILES_GET big-png.png file={name:"big-png.png", kind:"read", missing:false, size:1703501, mimeType:"image/png", contentEncoding:"base64", previewKind:"image", hash:null, contentBytes:2271336}
+FILES_GET big-png.png contentHead64=iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeABn9/HBEQVQ2wwiVYlZZF1kbjYk01HzVmBv0O7uMCQ==
+FILES_GET too-big-png.png file={missing:false, size:5242881, mimeType:"image/png", previewKind:"unsupported", hasContent:false}
+ASSERT big.missing PASS actual=false want=false
+ASSERT big.size PASS actual=1703501 want=1703501
+ASSERT big.mimeType PASS actual="image/png" want="image/png"
+ASSERT big.previewKind PASS actual="image" want="image"
+ASSERT big.contentEncoding PASS actual="base64" want="base64"
+ASSERT big.contentPresent PASS actual=true want=true
+ASSERT big.contentRoundTripBytes PASS actual=1703501 want=1703501
+ASSERT big.contentIsPngSignature PASS actual="89504e470d0a1a0a" want="89504e470d0a1a0a"
+ASSERT neg.missing PASS actual=false want=false
+ASSERT neg.size PASS actual=5242881 want=5242881
+ASSERT neg.previewKind PASS actual="unsupported" want="unsupported"
+ASSERT neg.hasNoContent PASS actual=false want=false
+VERDICT PASS
+
+Result
+- VERDICT PASS (11/11 assertions), exit 0.
+- Gateway stopped cleanly afterwards (SIGTERM; "shutdown completed cleanly in 16991ms").
